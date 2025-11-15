@@ -1,0 +1,268 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Generative Gradient with Processing.js</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/processing.js/1.6.6/processing.min.js"></script>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: #000;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="pjs-canvas"></canvas>
+    <script type="text/processing" data-processing-target="pjs-canvas">
+      // A class to manage each control point of the gradient
+      class ControlPoint {
+        float y_pos; // Y position as a fraction of height (0.0 to 1.0)
+        float r, g, b;
+        float r_v, g_v, b_v;
+
+        ControlPoint(float y) {
+          y_pos = y;
+          
+          // Initialize with random color
+          r = random(255);
+          g = random(255);
+          b = random(255);
+          
+          // Initialize with small, random velocity
+          float maxVel = 0.4;
+          r_v = random(-maxVel, maxVel);
+          g_v = random(-maxVel, maxVel);
+          b_v = random(-maxVel, maxVel);
+        }
+        
+        // Update color and handle bouncing
+        void update() {
+          r += r_v;
+          g += g_v;
+          b += b_v;
+          
+          if (r < 0 || r > 255) { r_v *= -1; r = constrain(r, 0, 255); }
+          if (g < 0 || g > 255) { g_v *= -1; g = constrain(g, 0, 255); }
+          if (b < 0 || b > 255) { b_v *= -1; b = constrain(b, 0, 255); }
+        }
+        
+        color getColor() {
+          return color(r, g, b);
+        }
+      }
+
+      class Horse {
+        float x, y;
+        float speed;
+        float animOffset;
+
+        Horse() {
+          animOffset = random(TWO_PI);
+          reset();
+          // Start at a random horizontal position off-screen to the left
+          x = random(-width, 0); 
+        }
+
+        void reset() {
+          x = -50; // Start just off-screen left
+          // Ride along the horizon line with some vertical randomness
+          y = height * 0.50 + random(-height * 0.02, height * 0.02); 
+          speed = random(1.0, 1.3); // Nearly the same speed
+        }
+
+        void update() {
+          x += speed;
+          if (x > width + 50) {
+            reset();
+          }
+        }
+
+        void display() {
+          // Simpler two-state animation
+          float animAmount = 0.5;
+          float legMove = 0;
+          // Use integer division to slow down the animation frame rate
+          // Use the horse's unique animOffset to desynchronize them
+          if (floor((frameCount + animOffset * 20) / 12) % 2 == 0) {
+            legMove = animAmount;
+          } else {
+            legMove = -animAmount;
+          }
+
+          pushMatrix();
+          translate(x, y);
+          scale(5); // Make the horses even smaller
+          fill(20, 20, 30); // Solid, dark silhouette color
+          noStroke();
+          
+          // Draw just the horse, no rider
+          beginShape();
+            // Head
+            vertex(2.8, -2.0); // Tip of ear
+            vertex(2.5, -2.1);
+            vertex(3.6, -1.8); // Snout
+            vertex(3.4, -1.5);
+            vertex(2.0, -1.3); // Jaw line
+
+            // Neck and Back
+            vertex(1.8, -1.5);
+            vertex(1.5, -1.0); // Withers
+            vertex(0.0, -0.8); // Mid-back
+            vertex(-2.0, -0.5); // Lower back
+            
+            // Rump and Tail
+            vertex(-2.8, 0.5);  // Top of rump
+            vertex(-4.0, 1.5);  // Tip of tail
+            vertex(-3.5, 1.0);
+            vertex(-3.0, 1.2);  // Base of rump
+
+            // Back Leg (Animated - corrected bend)
+            vertex(-2.5, 1.5 + legMove * 0.4);
+            vertex(-2.2, 2.8 + legMove);
+            vertex(-2.4, 3.8 + legMove); // Hoof
+            vertex(-2.1, 3.8 + legMove);
+            vertex(-1.9, 2.8 + legMove);
+            vertex(-2.2, 1.5 + legMove * 0.4);
+
+            // Belly
+            vertex(-1.5, 2.0);
+            vertex(1.0, 2.0);
+
+            // Front Leg (Animated)
+            vertex(1.2, 1.6 - legMove * 0.4);
+            vertex(1.5, 2.8 - legMove);
+            vertex(1.1, 3.8 - legMove); // Hoof
+            vertex(0.8, 3.8 - legMove);
+            vertex(1.2, 2.8 - legMove);
+            vertex(0.9, 1.6 - legMove * 0.4);
+
+            // Chest
+            vertex(1.5, 1.8);
+            vertex(2.0, 0.0); // Connects back to neck
+          endShape(CLOSE);
+          
+          popMatrix();
+        }
+      }
+
+      int numControlPoints = 8; // Added more random points
+      ControlPoint[] controlPoints = new ControlPoint[numControlPoints];
+
+      int numHorses = 15;
+      Horse[] horses = new Horse[numHorses];
+
+
+      void setup() {
+        size(window.innerWidth, window.innerHeight);
+        noStroke();
+
+        color baseColorStart = color(random(255), random(255), random(255));
+        color baseColorEnd = color(random(255), random(255), random(255));
+
+        // Setup endpoints
+        controlPoints[0] = new ControlPoint(0);
+        controlPoints[0].r = red(baseColorStart);
+        controlPoints[0].g = green(baseColorStart);
+        controlPoints[0].b = blue(baseColorStart);
+        
+        controlPoints[numControlPoints - 1] = new ControlPoint(1);
+        controlPoints[numControlPoints - 1].r = red(baseColorEnd);
+        controlPoints[numControlPoints - 1].g = green(baseColorEnd);
+        controlPoints[numControlPoints - 1].b = blue(baseColorEnd);
+        
+        // Create the other points without assigning color yet
+        controlPoints[1] = new ControlPoint(0.50); // Central horizon
+        controlPoints[2] = new ControlPoint(0.50 + random(0.01, 0.025)); // Point just below
+        controlPoints[3] = new ControlPoint(random(0.1, 0.4));
+        controlPoints[4] = new ControlPoint(random(0.6, 0.9));
+        controlPoints[5] = new ControlPoint(random(0.1, 0.9)); // New random point 1
+        controlPoints[6] = new ControlPoint(random(0.1, 0.9)); // New random point 2
+
+        // Loop through inner points to set their initial color
+        float colorShiftAmount = 50;
+        for (int i = 1; i < numControlPoints - 1; i++) {
+          ControlPoint cp = controlPoints[i];
+          color interpolatedColor = lerpColor(baseColorStart, baseColorEnd, cp.y_pos);
+          
+          float r = red(interpolatedColor) + random(-colorShiftAmount, colorShiftAmount);
+          float g = green(interpolatedColor) + random(-colorShiftAmount, colorShiftAmount);
+          float b = blue(interpolatedColor) + random(-colorShiftAmount, colorShiftAmount);
+
+          cp.r = constrain(r, 0, 255);
+          cp.g = constrain(g, 0, 255);
+          cp.b = constrain(b, 0, 255);
+        }
+
+        // Sort control points by their y_pos for correct gradient drawing
+        for (int i = 0; i < numControlPoints - 1; i++) {
+          for (int j = 0; j < numControlPoints - i - 1; j++) {
+            if (controlPoints[j].y_pos > controlPoints[j+1].y_pos) {
+              ControlPoint temp = controlPoints[j];
+              controlPoints[j] = controlPoints[j+1];
+              controlPoints[j+1] = temp;
+            }
+          }
+        }
+        
+        // Initialize horses
+        for (int i = 0; i < numHorses; i++) {
+          horses[i] = new Horse();
+        }
+      }
+
+      void draw() {
+        // Draw the gradient background first
+        controlPoints[0].update();
+        controlPoints[numControlPoints - 1].update();
+        
+        color currentStartColor = controlPoints[0].getColor();
+        color currentEndColor = controlPoints[numControlPoints - 1].getColor();
+        
+        float attractionFactor = 0.005;
+        for (int i = 1; i < numControlPoints - 1; i++) {
+          ControlPoint cp = controlPoints[i];
+          cp.update();
+          color targetColor = lerpColor(currentStartColor, currentEndColor, cp.y_pos);
+          cp.r = lerp(cp.r, red(targetColor), attractionFactor);
+          cp.g = lerp(cp.g, green(targetColor), attractionFactor);
+          cp.b = lerp(cp.b, blue(targetColor), attractionFactor);
+        }
+        
+        for (int i = 0; i < numControlPoints - 1; i++) {
+          ControlPoint startPoint = controlPoints[i];
+          ControlPoint endPoint = controlPoints[i+1];
+          
+          color from = startPoint.getColor();
+          color to = endPoint.getColor();
+          
+          float startY = startPoint.y_pos * height;
+          float endY = endPoint.y_pos * height;
+          
+          for (int y = (int)startY; y < (int)endY; y++) {
+            float inter = map(y, startY, endY, 0, 1);
+            color c = lerpColor(from, to, inter);
+            stroke(c);
+            line(0, y, width, y);
+          }
+        }
+        
+        // Then, update and draw the horses on top
+        for (int i = 0; i < numHorses; i++) {
+          horses[i].update();
+          horses[i].display();
+        }
+      }
+
+      void windowResized() {
+        resize(window.innerWidth, window.innerHeight);
+      }
+    </script>
+  </body>
+</html>

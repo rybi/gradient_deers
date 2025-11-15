@@ -1,0 +1,5 @@
+{
+  "name": "Copy of Generative Gradient",
+  "description": "A full-screen generative art piece that creates a random, slowly shifting gradient. The color channels (R, G, B) for the start and end points of the gradient move independently, creating a mesmerizing and ever-changing visual experience inspired by Processing.js sketches.",
+  "requestFramePermissions": []
+}
