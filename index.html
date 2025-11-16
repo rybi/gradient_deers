@@ -21,6 +21,33 @@
   <body>
     <canvas id="pjs-canvas"></canvas>
     <script type="text/processing" data-processing-target="pjs-canvas">
+      // A helper function to constrain green while preserving brightness
+      color constrainGreenAndPreserveBrightness(color c) {
+        float r = red(c);
+        float g = green(c);
+        float b = blue(c);
+        
+        // Green channel cannot be more than 20% larger than the max of red or blue
+        float greenLimit = max(r, b) * 1.2;
+        if (g > greenLimit) {
+          float excessGreen = g - greenLimit;
+          g = greenLimit;
+          // Redistribute the excess green to red and blue to maintain brightness
+          r += excessGreen * 0.5;
+          b += excessGreen * 0.5;
+        }
+        
+        return color(constrain(r, 0, 255), constrain(g, 0, 255), constrain(b, 0, 255));
+      }
+
+      // A smoother color interpolation function to prevent banding, inspired by the article
+      color smootherLerpColor(color c1, color c2, float amt) {
+        float t = constrain(amt, 0.0, 1.0);
+        // Using Ken Perlin's "smoother step" formula: 6t^5 - 15t^4 + 10t^3
+        float h = t * t * t * (t * (t * 6 - 15) + 10);
+        return lerpColor(c1, c2, h);
+      }
+
       // A class to manage each control point of the gradient
       class ControlPoint {
         float y_pos; // Y position as a fraction of height (0.0 to 1.0)
@@ -51,6 +78,18 @@
           if (r < 0 || r > 255) { r_v *= -1; r = constrain(r, 0, 255); }
           if (g < 0 || g > 255) { g_v *= -1; g = constrain(g, 0, 255); }
           if (b < 0 || b > 255) { b_v *= -1; b = constrain(b, 0, 255); }
+
+          // After standard updates, constrain green and redistribute brightness
+          float greenLimit = max(r, b) * 1.2;
+          if (g > greenLimit) {
+            float excessGreen = g - greenLimit;
+            g = greenLimit;
+            r += excessGreen * 0.5;
+            b += excessGreen * 0.5;
+            // Re-constrain r and b in case they went over
+            r = min(r, 255);
+            b = min(b, 255);
+          }
         }
         
         color getColor() {
@@ -62,6 +101,7 @@
         float x, y;
         float speed;
         float animOffset;
+        float currentScale;
 
         Horse() {
           animOffset = random(TWO_PI);
@@ -75,6 +115,13 @@
           // Ride along the horizon line with some vertical randomness
           y = height * 0.50 + random(-height * 0.02, height * 0.02); 
           speed = random(1.0, 1.3); // Nearly the same speed
+
+          // With a 2% chance, make a smaller "baby" horse
+          if (random(1) < 0.02) {
+            currentScale = 5.0 * 0.4; // 40% of normal size
+          } else {
+            currentScale = 5.0; // Normal size
+          }
         }
 
         void update() {
@@ -98,7 +145,7 @@
 
           pushMatrix();
           translate(x, y);
-          scale(5); // Make the horses even smaller
+          scale(currentScale); // Use scale property for variable size
           fill(20, 20, 30); // Solid, dark silhouette color
           noStroke();
           
@@ -152,7 +199,7 @@
         }
       }
 
-      int numControlPoints = 8; // Added more random points
+      int numControlPoints = 8;
       ControlPoint[] controlPoints = new ControlPoint[numControlPoints];
 
       int numHorses = 15;
@@ -162,11 +209,23 @@
       void setup() {
         size(window.innerWidth, window.innerHeight);
         noStroke();
+        
+        color[] accentColors = {
+          color(204, 189, 171), // #ccbdab
+          color(246, 200, 195), // #f6c8c3
+          color(199, 195, 176)  // #c7c3b0
+        };
 
         color baseColorStart = color(random(255), random(255), random(255));
-        color baseColorEnd = color(random(255), random(255), random(255));
+        baseColorStart = constrainGreenAndPreserveBrightness(baseColorStart);
+        baseColorStart = smootherLerpColor(baseColorStart, accentColors[(int)random(accentColors.length)], 0.2);
+        baseColorStart = constrainGreenAndPreserveBrightness(baseColorStart);
 
-        // Setup endpoints
+        color baseColorEnd = color(random(255), random(255), random(255));
+        baseColorEnd = constrainGreenAndPreserveBrightness(baseColorEnd);
+        baseColorEnd = smootherLerpColor(baseColorEnd, accentColors[(int)random(accentColors.length)], 0.2);
+        baseColorEnd = constrainGreenAndPreserveBrightness(baseColorEnd);
+
         controlPoints[0] = new ControlPoint(0);
         controlPoints[0].r = red(baseColorStart);
         controlPoints[0].g = green(baseColorStart);
@@ -177,30 +236,32 @@
         controlPoints[numControlPoints - 1].g = green(baseColorEnd);
         controlPoints[numControlPoints - 1].b = blue(baseColorEnd);
         
-        // Create the other points without assigning color yet
-        controlPoints[1] = new ControlPoint(0.50); // Central horizon
-        controlPoints[2] = new ControlPoint(0.50 + random(0.01, 0.025)); // Point just below
+        controlPoints[1] = new ControlPoint(0.50);
+        controlPoints[2] = new ControlPoint(0.50 + random(0.01, 0.025));
         controlPoints[3] = new ControlPoint(random(0.1, 0.4));
         controlPoints[4] = new ControlPoint(random(0.6, 0.9));
-        controlPoints[5] = new ControlPoint(random(0.1, 0.9)); // New random point 1
-        controlPoints[6] = new ControlPoint(random(0.1, 0.9)); // New random point 2
+        controlPoints[5] = new ControlPoint(random(0.1, 0.9));
+        controlPoints[6] = new ControlPoint(random(0.1, 0.9));
 
-        // Loop through inner points to set their initial color
         float colorShiftAmount = 50;
         for (int i = 1; i < numControlPoints - 1; i++) {
           ControlPoint cp = controlPoints[i];
-          color interpolatedColor = lerpColor(baseColorStart, baseColorEnd, cp.y_pos);
+          color interpolatedColor = smootherLerpColor(baseColorStart, baseColorEnd, cp.y_pos);
           
           float r = red(interpolatedColor) + random(-colorShiftAmount, colorShiftAmount);
           float g = green(interpolatedColor) + random(-colorShiftAmount, colorShiftAmount);
           float b = blue(interpolatedColor) + random(-colorShiftAmount, colorShiftAmount);
 
-          cp.r = constrain(r, 0, 255);
-          cp.g = constrain(g, 0, 255);
-          cp.b = constrain(b, 0, 255);
+          color originalInnerColor = color(constrain(r, 0, 255), constrain(g, 0, 255), constrain(b, 0, 255));
+          color mixedColor = smootherLerpColor(originalInnerColor, accentColors[(int)random(accentColors.length)], 0.2);
+          mixedColor = constrainGreenAndPreserveBrightness(mixedColor);
+
+          cp.r = red(mixedColor);
+          cp.g = green(mixedColor);
+          cp.b = blue(mixedColor);
         }
 
-        // Sort control points by their y_pos for correct gradient drawing
+        // Sort control points by y-position
         for (int i = 0; i < numControlPoints - 1; i++) {
           for (int j = 0; j < numControlPoints - i - 1; j++) {
             if (controlPoints[j].y_pos > controlPoints[j+1].y_pos) {
@@ -211,30 +272,67 @@
           }
         }
         
-        // Initialize horses
+        // --- Enforce minimum spacing between control points ---
+        float minGap = 0.05;
+
+        // First pass: from top to bottom, push points down to create space.
+        for (int i = 1; i < numControlPoints; i++) {
+            ControlPoint prev = controlPoints[i-1];
+            ControlPoint curr = controlPoints[i];
+            
+            // The horizon line is made of two points very close together around y=0.5
+            // This is intentional, so we exempt this specific pair from the spacing rule.
+            boolean isHorizonPair = (abs(prev.y_pos - 0.5) < 0.03 && abs(curr.y_pos - prev.y_pos) < 0.03);
+
+            if (!isHorizonPair) {
+                if (curr.y_pos < prev.y_pos + minGap) {
+                    curr.y_pos = prev.y_pos + minGap;
+                }
+            }
+        }
+
+        // Second pass: from bottom to top, push points up to fit within the [0, 1] bounds.
+        controlPoints[numControlPoints - 1].y_pos = 1.0; // The last point must be at the bottom.
+        for (int i = numControlPoints - 2; i >= 0; i--) {
+            ControlPoint curr = controlPoints[i];
+            ControlPoint next = controlPoints[i+1];
+            
+            boolean isHorizonPair = (abs(curr.y_pos - 0.5) < 0.03 && abs(next.y_pos - curr.y_pos) < 0.03);
+
+            if (!isHorizonPair) {
+                if (curr.y_pos > next.y_pos - minGap) {
+                    curr.y_pos = next.y_pos - minGap;
+                }
+            }
+        }
+        controlPoints[0].y_pos = 0.0; // The first point must be at the top.
+        
         for (int i = 0; i < numHorses; i++) {
           horses[i] = new Horse();
         }
       }
 
       void draw() {
-        // Draw the gradient background first
-        controlPoints[0].update();
-        controlPoints[numControlPoints - 1].update();
+        // Update all control point colors
+        for (int i = 0; i < numControlPoints; i++) {
+          controlPoints[i].update();
+        }
         
+        // Attract inner points to the main gradient flow
         color currentStartColor = controlPoints[0].getColor();
         color currentEndColor = controlPoints[numControlPoints - 1].getColor();
-        
         float attractionFactor = 0.005;
         for (int i = 1; i < numControlPoints - 1; i++) {
           ControlPoint cp = controlPoints[i];
-          cp.update();
-          color targetColor = lerpColor(currentStartColor, currentEndColor, cp.y_pos);
+          color targetColor = smootherLerpColor(currentStartColor, currentEndColor, cp.y_pos);
           cp.r = lerp(cp.r, red(targetColor), attractionFactor);
           cp.g = lerp(cp.g, green(targetColor), attractionFactor);
           cp.b = lerp(cp.b, blue(targetColor), attractionFactor);
         }
         
+        // --- New Gradient Drawing Logic using pixels[] ---
+        loadPixels();
+
         for (int i = 0; i < numControlPoints - 1; i++) {
           ControlPoint startPoint = controlPoints[i];
           ControlPoint endPoint = controlPoints[i+1];
@@ -242,18 +340,34 @@
           color from = startPoint.getColor();
           color to = endPoint.getColor();
           
-          float startY = startPoint.y_pos * height;
-          float endY = endPoint.y_pos * height;
+          int startY = (int)(startPoint.y_pos * height);
+          int endY = (int)(endPoint.y_pos * height);
           
-          for (int y = (int)startY; y < (int)endY; y++) {
+          for (int y = startY; y < endY; y++) {
+            if (y < 0 || y >= height) continue; // Boundary check
+            
             float inter = map(y, startY, endY, 0, 1);
-            color c = lerpColor(from, to, inter);
-            stroke(c);
-            line(0, y, width, y);
+            color c = smootherLerpColor(from, to, inter);
+            
+            for (int x = 0; x < width; x++) {
+              pixels[y * width + x] = c;
+            }
           }
         }
         
-        // Then, update and draw the horses on top
+        // Ensure the very last row of pixels is drawn
+        int lastY = height - 1;
+        if(lastY >= 0) {
+           color c = controlPoints[numControlPoints-1].getColor();
+           for (int x = 0; x < width; x++) {
+              pixels[lastY * width + x] = c;
+           }
+        }
+
+        updatePixels();
+        // --- End of new logic ---
+        
+        // Update and draw the horses on top
         for (int i = 0; i < numHorses; i++) {
           horses[i].update();
           horses[i].display();
